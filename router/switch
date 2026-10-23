@@ -1,0 +1,45 @@
+#!/bin/sh
+# Started detached by the vpn-client wrapper so the touchscreen never waits
+# for Tor. Uses GL.iNet's own RPCs over localhost, like /etc/gl-switch.d/tor.sh.
+# Usage: switch tor-on | tor-off | tor-restart | vpn-on <tunnel_id>
+set -u
+
+TOR_CARD_ID=919101
+pending=/var/run/mudi7-tor/pending
+trap 'rm -f "$pending"' EXIT
+
+port=$(grep -E '    listen [0-9]+;' /etc/nginx/conf.d/gl.conf | grep -oE '[0-9]+' | head -1)
+url="http://127.0.0.1:${port:-80}/rpc"
+
+rpc() {
+	curl -s -m 60 -H 'glinet: 1' "$url" \
+		-d "{\"jsonrpc\":\"2.0\",\"method\":\"call\",\"params\":[\"\",\"$1\",\"$2\",$3],\"id\":1}"
+}
+
+case "${1:-}" in
+tor-on)
+	for id in $(rpc vpn-client get_tunnel '{}' | jsonfilter -e '@.result.tunnels[@.enabled=true].tunnel_id'); do
+		[ "$id" = "$TOR_CARD_ID" ] && continue
+		rpc vpn-client set_tunnel "{\"tunnel_id\":$id,\"enabled\":false}" >/dev/null
+	done
+	rpc tor set_config '{"enable":true}' >/dev/null
+	;;
+tor-off)
+	rpc tor set_config '{"enable":false}' >/dev/null
+	;;
+tor-restart)
+	# GL's tor_on rewrites ExitNodes from uci and restarts Tor, which also
+	# rereads the Bridge lines.
+	[ "$(uci -q get tor.global.enable)" = 1 ] || exit 0
+	rpc tor set_config '{"enable":true}' >/dev/null
+	;;
+vpn-on)
+	id=${2:-}
+	case "$id" in '' | *[!0-9]*) exit 1 ;; esac
+	rpc tor set_config '{"enable":false}' >/dev/null
+	rpc vpn-client set_tunnel "{\"tunnel_id\":$id,\"enabled\":true}" >/dev/null
+	;;
+*)
+	exit 1
+	;;
+esac

@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+# mudi7-tor: Tor status on the lock screen. Starts after gl_screen (80).
+
+START=95
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/bin/lua /usr/libexec/mudi7-tor/tor-sig.lua
+	procd_set_param respawn 3600 10 5
+	procd_close_instance
+}
+
+stop_service() {
+	. /etc/gl_screen/scripts/common.sh && gen_screen_config
+	ubus call gl_screen set '{"method":"reload"}' >/dev/null 2>&1
+}
